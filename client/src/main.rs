@@ -5,9 +5,9 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{prelude::*, widgets::*};
-use std::{error::Error, time::Duration};
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::TcpStream;
+use std::{error::Error, time::Duration};
 
 use std::sync::mpsc;
 use std::thread;
@@ -248,10 +248,9 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
     let messages: Vec<ListItem> = app
         .messages
         .iter()
-        .enumerate()
         .rev()
-        .map(|(i, m)| {
-            let content = Line::from(Span::raw(format!("{}: {}", m.user, m.content)));
+        .map(|m| {
+            let content = Line::from(Span::raw(format!("{}: {}", m.user_name, m.content)));
             ListItem::new(content)
         })
         .collect();
