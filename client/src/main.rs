@@ -90,7 +90,9 @@ impl App<'_> {
     fn submit_message(&mut self) {
         if !self.input.is_empty() {
             self.input.push('\n');
-            self.stream.write_all(self.input.as_bytes()).unwrap();
+            if let Err(_) = self.stream.write_all(self.input.as_bytes()) {
+                self.messages.push(Message::error("Cant send message to server!"))
+            }
             self.input.clear();
             self.reset_cursor();
         }
@@ -132,17 +134,15 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
     thread::spawn(move || loop {
         let mut buf = Vec::new();
         if let Err(err) = reader.read_until(b'\n', &mut buf) {
-            send.send(Message {
-                user_id: 0,
-                user_name: "uh oh".into(),
-                content: err.to_string().into(),
-            })
-            .unwrap();
-            continue;
+            send.send(Message::error(&err.to_string())).unwrap();
+            break;
         }
 
-        send.send(serde_json::from_slice::<Message>(&buf).unwrap())
-            .unwrap();
+        send.send(
+            serde_json::from_slice::<Message>(&buf)
+                .unwrap_or(Message::error("invalid data from server")),
+        )
+        .unwrap();
     });
     loop {
         if let Ok(message) = recv.try_recv() {
@@ -259,8 +259,10 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
         .iter()
         .rev()
         .map(|m| {
-            let content = Line::from(Span::raw(format!("{}: {}", m.user_name, m.content)));
-            ListItem::new(content)
+            let user_name =
+                Span::styled(format!("{}: ", m.user_name), Style::default().fg(m.color));
+            let text = Span::raw(format!("{}", m.content));
+            ListItem::new(Line::from(vec![user_name, text]))
         })
         .collect();
     let messages = List::new(messages)
@@ -269,27 +271,3 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
 
     f.render_widget(messages, chunks[2]);
 }
-/*
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut conn = TcpStream::connect("127.0.0.1:80")?;
-
-    let mut buf = Vec::new();
-    let mut reader = BufReader::new(conn.try_clone()?);
-
-    thread::spawn(move || handle_input(&mut conn));
-    loop {
-        reader.read_until(b'\n', &mut buf)?;
-        println!("{}", str::from_utf8(&buf)?.trim());
-        io::stdin().lock().read(&mut buf)?;
-        buf.clear();
-    }
-    Ok(())
-}
-fn handle_input(stream: &mut TcpStream) {
-    loop {
-        let mut user_input = String::new();
-        io::stdin().read_line(&mut user_input).unwrap();
-        stream.write_all(user_input.as_bytes()).unwrap();
-    }
-}
-*/

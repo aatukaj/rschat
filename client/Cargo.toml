@@ -9,5 +9,5 @@ edition = "2021"
 serde = { workspace = true }
 serde_json = { workspace = true }
 crossterm = "0.26"
-ratatui = "0.22"
+ratatui = { workspace = true }
 common = { workspace = true }

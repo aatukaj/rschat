@@ -11,4 +11,4 @@ serde_json = { workspace = true }
 log = "0.4"
 simple_logger = "4.2"
 common = { workspace = true }
-
+ratatui = { workspace = true }

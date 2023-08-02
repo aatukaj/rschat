@@ -5,11 +5,13 @@ use std::net::{TcpListener, TcpStream};
 use std::str;
 use std::sync::{Arc, Mutex};
 use std::thread;
+use ratatui::style::Color;
 
 struct Client {
     id: u32,
     user_name: Arc<str>,
     stream: TcpStream,
+    color: Color,
 }
 impl Client {
     fn try_clone(&self) -> io::Result<Self> {
@@ -17,11 +19,13 @@ impl Client {
             id: self.id,
             user_name: Arc::clone(&self.user_name),
             stream: self.stream.try_clone()?,
+            color: self.color,
         })
     }
 }
 
 const USER_NAMES: &[&str] = &["bob", "patrick", "nobert"];
+const COLORS: &[Color] = &[Color::Yellow, Color::Magenta, Color::LightGreen];
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     simple_logger::SimpleLogger::default().init()?;
@@ -36,14 +40,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let msg = Message {
             user_id: 69,
             user_name: "SERVER".into(),
-            content: "connected to server succesfully!\n".into(),
+            content: "connected succesfully!\n".into(),
+            color: ratatui::style::Color::Cyan,
         };
+
         stream.write_all(&msg.serialize())?;
 
         let client = Client {
             stream,
             id,
             user_name: format!("{}{}", USER_NAMES[i % USER_NAMES.len()], i).into(),
+            color : COLORS[i % COLORS.len()]
         };
 
         clients.lock().unwrap().insert(id, client.try_clone()?);
@@ -69,10 +76,12 @@ fn handle_client(client: Client, clients: Arc<Mutex<HashMap<u32, Client>>>) {
         }
 
         println!("{:?}", str::from_utf8(&buf).unwrap());
+
         let bytes_to_send = &common::Message {
             user_id: client.id,
             user_name: client.user_name.as_ref().into(),
             content: str::from_utf8(&buf).unwrap().into(),
+            color: client.color,
         }
         .serialize();
 
