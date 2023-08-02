@@ -1,13 +1,11 @@
 use std::borrow::Cow;
 
-
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct Message<'a> {
     pub user_id: u32,
     pub user_name: Cow<'a, str>,
     pub content: Cow<'a, str>,
     pub color: ratatui::style::Color,
-
 }
 impl Message<'_> {
     pub fn error(msg: &str) -> Self {
@@ -25,6 +23,18 @@ impl Message<'_> {
         bytes
     }
 }
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+pub struct NewUserSet<'a> {
+    pub user_name: Cow<'a, str>,
+    pub color: ratatui::style::Color,
+}
+
+pub fn serialize<T: serde::Serialize>(value: &T) -> Vec<u8> {
+    let mut bytes = serde_json::to_vec(value).unwrap();
+    bytes.push(b'\n');
+    bytes
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

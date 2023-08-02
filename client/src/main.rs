@@ -5,6 +5,7 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{prelude::*, widgets::*};
+use std::collections::VecDeque;
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::TcpStream;
 use std::{error::Error, time::Duration};
@@ -16,6 +17,26 @@ enum InputMode {
     Editing,
 }
 
+enum AppMode {
+    Settings(usize),
+    Chat,
+}
+const MAX_MESSAGES: usize = 50;
+const COLORS: &[&str] = &[
+    "Red",
+    "Blue",
+    "Green",
+    "Yellow",
+    "Magenta",
+    "Dark Gray",
+    "Light Red",
+    "Light Green",
+    "Light Yellow",
+    "Light Blue",
+    "Light Magenta",
+    "Light Cyan",
+];
+
 /// App holds the state of the application
 struct App<'a> {
     /// Current value of the input box
@@ -24,18 +45,20 @@ struct App<'a> {
     cursor_position: usize,
     /// Current input mode
     input_mode: InputMode,
+    app_mode: AppMode,
     /// History of recorded messages
-    messages: Vec<Message<'a>>,
+    messages: VecDeque<Message<'a>>,
 
     stream: TcpStream,
 }
 
-impl App<'_> {
+impl<'a> App<'a> {
     fn new() -> Self {
         Self {
+            app_mode: AppMode::Settings(0),
             input: String::new(),
             input_mode: InputMode::Normal,
-            messages: Vec::new(),
+            messages: VecDeque::with_capacity(MAX_MESSAGES),
             cursor_position: 0,
             stream: TcpStream::connect("127.0.0.1:80").unwrap(),
         }
@@ -86,12 +109,18 @@ impl App<'_> {
     fn reset_cursor(&mut self) {
         self.cursor_position = 0;
     }
+    fn push_message(&mut self, msg: Message<'a>) {
+        self.messages.push_back(msg);
+        if self.messages.len() > MAX_MESSAGES {
+            self.messages.pop_front();
+        }
+    }
 
     fn submit_message(&mut self) {
         if !self.input.is_empty() {
             self.input.push('\n');
             if let Err(_) = self.stream.write_all(self.input.as_bytes()) {
-                self.messages.push(Message::error("Cant send message to server!"))
+                self.push_message(Message::error("Disconnected from server"))
             }
             self.input.clear();
             self.reset_cursor();
@@ -146,7 +175,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
     });
     loop {
         if let Ok(message) = recv.try_recv() {
-            app.messages.push(message);
+            app.push_message(message);
         }
         terminal.draw(|f| ui(f, &app))?;
 
@@ -154,6 +183,16 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
             .then(event::read)
             .transpose()?
         {
+            if key.kind == KeyEventKind::Press {
+                if let AppMode::Settings(ref mut color_index) = app.app_mode {
+                    match key.code {
+                        KeyCode::Up => *color_index = color_index.saturating_sub(1),
+                        KeyCode::Down => *color_index = (COLORS.len() - 1).min(*color_index + 1),
+                        _ => {}
+                    }
+                }
+            }
+
             match app.input_mode {
                 InputMode::Normal => match key.code {
                     KeyCode::Char('e') => {
@@ -161,6 +200,13 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                     }
                     KeyCode::Char('q') => {
                         return Ok(());
+                    }
+
+                    KeyCode::Char(' ') if key.kind == KeyEventKind::Press => {
+                        app.app_mode = match app.app_mode {
+                            AppMode::Settings(_) => AppMode::Chat,
+                            AppMode::Chat => AppMode::Settings(0),
+                        }
                     }
                     _ => {}
                 },
@@ -209,7 +255,7 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
                 "q".bold(),
                 " to exit, ".into(),
                 "e".bold(),
-                " to start editing.".bold(),
+                " to start editing.".into(),
             ],
             Style::default().add_modifier(Modifier::RAPID_BLINK),
         ),
@@ -235,39 +281,50 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
             InputMode::Editing => Style::default().fg(Color::Yellow),
         })
         .block(Block::default().borders(Borders::ALL).title("Input"));
+
     f.render_widget(input, chunks[1]);
     match app.input_mode {
-        InputMode::Normal =>
-            // Hide the cursor. `Frame` does this by default, so we don't need to do anything here
-            {}
+        InputMode::Normal => {}
 
-        InputMode::Editing => {
-            // Make the cursor visible and ask ratatui to put it at the specified coordinates after
-            // rendering
-            f.set_cursor(
-                // Draw the cursor at the current position in the input field.
-                // This position is can be controlled via the left and right arrow key
-                chunks[1].x + app.cursor_position as u16 + 1,
-                // Move one line down, from the border to the input line
-                chunks[1].y + 1,
-            )
+        InputMode::Editing => f.set_cursor(
+            chunks[1].x + app.cursor_position as u16 + 1,
+            chunks[1].y + 1,
+        ),
+    }
+    match app.app_mode {
+        AppMode::Settings(color_index) => {
+            let colors: Vec<ListItem> = COLORS
+                .iter()
+                .map(|c| {
+                    let text =
+                        Span::styled(format!("{}", c), Style::default().fg(c.parse().unwrap()));
+                    ListItem::new(Line::from(text))
+                })
+                .collect();
+            let colors = List::new(colors)
+                .block(Block::default().borders(Borders::ALL).title("Colors"))
+                .highlight_style(Style::default().bold())
+                .highlight_symbol(">> ");
+            let mut state = ListState::default().with_selected(Some(color_index));
+            f.render_stateful_widget(colors, chunks[2], &mut state);
+        }
+        AppMode::Chat => {
+            let messages: Vec<ListItem> = app
+                .messages
+                .iter()
+                .rev()
+                .map(|m| {
+                    let user_name =
+                        Span::styled(format!("{}: ", m.user_name), Style::default().fg(m.color));
+                    let text = Span::raw(format!("{}", m.content));
+                    ListItem::new(Line::from(vec![user_name, text]))
+                })
+                .collect();
+            let messages = List::new(messages)
+                .block(Block::default().borders(Borders::ALL).title("Messages"))
+                .start_corner(Corner::BottomLeft);
+
+            f.render_widget(messages, chunks[2]);
         }
     }
-
-    let messages: Vec<ListItem> = app
-        .messages
-        .iter()
-        .rev()
-        .map(|m| {
-            let user_name =
-                Span::styled(format!("{}: ", m.user_name), Style::default().fg(m.color));
-            let text = Span::raw(format!("{}", m.content));
-            ListItem::new(Line::from(vec![user_name, text]))
-        })
-        .collect();
-    let messages = List::new(messages)
-        .block(Block::default().borders(Borders::ALL).title("Messages"))
-        .start_corner(Corner::BottomLeft);
-
-    f.render_widget(messages, chunks[2]);
 }
