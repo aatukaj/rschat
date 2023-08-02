@@ -131,7 +131,16 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
     let mut reader = BufReader::new(app.stream.try_clone()?);
     thread::spawn(move || loop {
         let mut buf = Vec::new();
-        reader.read_until(b'\n', &mut buf).unwrap();
+        if let Err(err) = reader.read_until(b'\n', &mut buf) {
+            send.send(Message {
+                user_id: 0,
+                user_name: "uh oh".into(),
+                content: err.to_string().into(),
+            })
+            .unwrap();
+            continue;
+        }
+
         send.send(serde_json::from_slice::<Message>(&buf).unwrap())
             .unwrap();
     });

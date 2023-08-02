@@ -1,5 +1,4 @@
 use common::Message;
-use serde;
 use std::collections::HashMap;
 use std::io::{self, prelude::*, BufReader};
 use std::net::{TcpListener, TcpStream};
@@ -39,7 +38,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             user_name: "SERVER".into(),
             content: "connected to server succesfully!\n".into(),
         };
-        stream.write(&msg.serialize())?;
+        stream.write_all(&msg.serialize())?;
 
         let client = Client {
             stream,
