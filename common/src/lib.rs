@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-#[derive(serde::Serialize, serde::Deserialize, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct Message<'a> {
     pub user_id: u32,
     pub user_name: Cow<'a, str>,
@@ -18,8 +18,7 @@ impl Message<'_> {
     }
 
     pub fn serialize(&self) -> Vec<u8> {
-        let mut bytes = serde_json::to_vec(self).unwrap();
-        bytes.push(b'\n');
+        let bytes = serde_json::to_vec(self).unwrap();
         bytes
     }
 }
@@ -30,8 +29,7 @@ pub struct NewUserSet<'a> {
 }
 
 pub fn serialize<T: serde::Serialize>(value: &T) -> Vec<u8> {
-    let mut bytes = serde_json::to_vec(value).unwrap();
-    bytes.push(b'\n');
+    let bytes = serde_json::to_vec(value).unwrap();
     bytes
 }
 

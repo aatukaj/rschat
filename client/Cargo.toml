@@ -11,3 +11,4 @@ serde_json = { workspace = true }
 crossterm = "0.26"
 ratatui = { workspace = true }
 common = { workspace = true }
+tungstenite = "0.20"

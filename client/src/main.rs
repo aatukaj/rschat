@@ -9,9 +9,13 @@ use std::collections::VecDeque;
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::TcpStream;
 use std::{error::Error, time::Duration};
+use tn::stream::MaybeTlsStream;
 
 use std::sync::mpsc;
 use std::thread;
+
+use tungstenite as tn;
+
 enum InputMode {
     Normal,
     Editing,
@@ -48,19 +52,23 @@ struct App<'a> {
     app_mode: AppMode,
     /// History of recorded messages
     messages: VecDeque<Message<'a>>,
-
-    stream: TcpStream,
+    socket: tn::WebSocket<TcpStream>,
 }
 
 impl<'a> App<'a> {
     fn new() -> Self {
+        let stream = TcpStream::connect("127.0.0.1:8080").unwrap();
+        let (socket, _resp) =
+            tn::client::client("ws://example.com:8080", stream.try_clone().unwrap()).unwrap();
+        stream.set_nonblocking(true).unwrap();
         Self {
             app_mode: AppMode::Settings(0),
             input: String::new(),
             input_mode: InputMode::Normal,
             messages: VecDeque::with_capacity(MAX_MESSAGES),
             cursor_position: 0,
-            stream: TcpStream::connect("127.0.0.1:80").unwrap(),
+
+            socket,
         }
     }
 
@@ -116,11 +124,13 @@ impl<'a> App<'a> {
         }
     }
     fn submit_userinfo(&mut self, color_index: usize) {
-        self.stream
-            .write_all(&common::serialize(&common::NewUserSet {
-                user_name: self.input.to_owned().into(),
-                color: COLORS[color_index].parse().unwrap(),
-            }))
+        self.socket
+            .send(tn::Message::Binary(common::serialize(
+                &common::NewUserSet {
+                    user_name: self.input.to_owned().into(),
+                    color: COLORS[color_index].parse().unwrap(),
+                },
+            )))
             .unwrap();
         self.input.clear();
         self.reset_cursor();
@@ -130,7 +140,7 @@ impl<'a> App<'a> {
     fn submit_message(&mut self) {
         if !self.input.is_empty() {
             self.input.push('\n');
-            if let Err(_) = self.stream.write_all(self.input.as_bytes()) {
+            if let Err(_) = self.socket.send(tn::Message::Text(self.input.clone())) {
                 self.push_message(Message::error("Disconnected from server"))
             }
             self.input.clear();
@@ -168,26 +178,13 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<()> {
-    let (send, recv) = mpsc::channel();
-
-    let mut reader = BufReader::new(app.stream.try_clone()?);
-    thread::spawn(move || loop {
-        let mut buf = Vec::new();
-        if let Err(err) = reader.read_until(b'\n', &mut buf) {
-            send.send(Message::error(&err.to_string())).unwrap();
-            break;
-        }
-
-        send.send(
-            serde_json::from_slice::<Message>(&buf)
-                .unwrap_or(Message::error("invalid data from server")),
-        )
-        .unwrap();
-    });
     loop {
-        if let Ok(message) = recv.try_recv() {
-            app.push_message(message);
+        if let Ok(message) = app.socket.read() {
+            app.push_message(
+                serde_json::from_slice(&message.into_data()).unwrap(),
+            )
         }
+
         terminal.draw(|f| ui(f, &app))?;
 
         if let Some(Event::Key(key)) = event::poll(Duration::from_millis(100))?
