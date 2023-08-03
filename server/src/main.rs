@@ -1,11 +1,11 @@
 use common::Message;
+use ratatui::style::Color;
 use std::collections::HashMap;
 use std::io::{self, prelude::*, BufReader};
 use std::net::{TcpListener, TcpStream};
 use std::str;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use ratatui::style::Color;
 
 struct Client {
     id: u32,
@@ -24,9 +24,6 @@ impl Client {
     }
 }
 
-const USER_NAMES: &[&str] = &["bob", "patrick", "nobert"];
-const COLORS: &[Color] = &[Color::Yellow, Color::Magenta, Color::LightGreen];
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     simple_logger::SimpleLogger::default().init()?;
     let listener = TcpListener::bind("127.0.0.1:80")?;
@@ -34,30 +31,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut handles = Vec::new();
     for (i, stream) in listener.incoming().enumerate() {
         let id = i as u32;
-        let mut stream = stream?;
+        let stream = stream?;
         log::info!("New Connection {:?}", stream);
-
-        let msg = Message {
-            user_id: 69,
-            user_name: "SERVER".into(),
-            content: "connected succesfully!\n".into(),
-            color: ratatui::style::Color::Cyan,
-        };
-
-        stream.write_all(&msg.serialize())?;
-
-        let client = Client {
-            stream,
-            id,
-            user_name: format!("{}{}", USER_NAMES[i % USER_NAMES.len()], i).into(),
-            color : COLORS[i % COLORS.len()]
-        };
-
-        clients.lock().unwrap().insert(id, client.try_clone()?);
 
         let clients = Arc::clone(&clients);
 
-        handles.push(thread::spawn(move || handle_client(client, clients)));
+        handles.push(thread::spawn(move || handle_client(stream, id, clients)));
     }
     for handle in handles {
         handle.join().unwrap();
@@ -65,7 +44,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn handle_client(client: Client, clients: Arc<Mutex<HashMap<u32, Client>>>) {
+fn handle_client(stream: TcpStream, id: u32, clients: Arc<Mutex<HashMap<u32, Client>>>) {
+    let mut buf = Vec::new();
+    BufReader::new(&stream).read_until(b'\n', &mut buf).unwrap();
+    let user_data: common::NewUserSet = serde_json::from_slice(&buf).unwrap();
+
+    let mut client = Client {
+        stream,
+        id,
+        user_name: user_data.user_name.into(),
+        color: user_data.color,
+    };
+
+    clients
+        .lock()
+        .unwrap()
+        .insert(id, client.try_clone().unwrap());
+
+    let msg = Message {
+        user_id: 69,
+        user_name: "SERVER".into(),
+        content: format!("connected succesfully as '{}'", client.user_name).into(),
+        color: ratatui::style::Color::Cyan,
+    };
+
+    client.stream.write_all(&msg.serialize()).unwrap();
+
     loop {
         let mut buf = Vec::new();
 

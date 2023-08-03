@@ -115,6 +115,17 @@ impl<'a> App<'a> {
             self.messages.pop_front();
         }
     }
+    fn submit_userinfo(&mut self, color_index: usize) {
+        self.stream
+            .write_all(&common::serialize(&common::NewUserSet {
+                user_name: self.input.to_owned().into(),
+                color: COLORS[color_index].parse().unwrap(),
+            }))
+            .unwrap();
+        self.input.clear();
+        self.reset_cursor();
+        self.app_mode = AppMode::Chat
+    }
 
     fn submit_message(&mut self) {
         if !self.input.is_empty() {
@@ -202,16 +213,13 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                         return Ok(());
                     }
 
-                    KeyCode::Char(' ') if key.kind == KeyEventKind::Press => {
-                        app.app_mode = match app.app_mode {
-                            AppMode::Settings(_) => AppMode::Chat,
-                            AppMode::Chat => AppMode::Settings(0),
-                        }
-                    }
                     _ => {}
                 },
                 InputMode::Editing if key.kind == KeyEventKind::Press => match key.code {
-                    KeyCode::Enter => app.submit_message(),
+                    KeyCode::Enter => match app.app_mode {
+                        AppMode::Chat => app.submit_message(),
+                        AppMode::Settings(color_index) => app.submit_userinfo(color_index),
+                    },
                     KeyCode::Char(to_insert) => {
                         app.enter_char(to_insert);
                     }
@@ -265,7 +273,7 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
                 "Esc".bold(),
                 " to stop editing, ".into(),
                 "Enter".bold(),
-                " to record the message".into(),
+                " to send the message".into(),
             ],
             Style::default(),
         ),
@@ -280,7 +288,14 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
             InputMode::Normal => Style::default(),
             InputMode::Editing => Style::default().fg(Color::Yellow),
         })
-        .block(Block::default().borders(Borders::ALL).title("Input"));
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(match app.app_mode {
+                    AppMode::Chat => "Input",
+                    AppMode::Settings(_) => "Username",
+                }),
+        );
 
     f.render_widget(input, chunks[1]);
     match app.input_mode {
