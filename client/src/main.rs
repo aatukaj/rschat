@@ -6,13 +6,9 @@ use crossterm::{
 };
 use ratatui::{prelude::*, widgets::*};
 use std::collections::VecDeque;
-use std::io::{self, BufRead, BufReader, Write};
+use std::io;
 use std::net::TcpStream;
 use std::{error::Error, time::Duration};
-use tn::stream::MaybeTlsStream;
-
-use std::sync::mpsc;
-use std::thread;
 
 use tungstenite as tn;
 
@@ -180,9 +176,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<()> {
     loop {
         if let Ok(message) = app.socket.read() {
-            app.push_message(
-                serde_json::from_slice(&message.into_data()).unwrap(),
-            )
+            app.push_message(serde_json::from_slice(&message.into_data()).unwrap())
         }
 
         terminal.draw(|f| ui(f, &app))?;
