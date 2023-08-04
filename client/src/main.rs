@@ -59,7 +59,7 @@ impl<'a> App<'a> {
     fn new() -> Self {
         let stream = TcpStream::connect("127.0.0.1:8080").unwrap();
         let (socket, _resp) =
-            tn::client::client("ws://example.com:8080", stream.try_clone().unwrap()).unwrap();
+            tn::client::client("ws://127.0.0.1:8080", stream.try_clone().unwrap()).unwrap();
         stream.set_nonblocking(true).unwrap();
         Self {
             app_mode: AppMode::Settings(0),
