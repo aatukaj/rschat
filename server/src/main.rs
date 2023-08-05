@@ -15,6 +15,7 @@ use tokio::net::{TcpListener, TcpStream};
 
 use tokio_tungstenite::tungstenite::protocol::Message;
 
+#[derive(Debug)]
 struct UserData {
     color: Color,
     user_name: String,
@@ -58,7 +59,7 @@ async fn handle_connection(peer_map: PeerMap, raw_stream: TcpStream, addr: Socke
         color: ratatui::style::Color::Cyan,
     }
     .serialize();
-
+    println!("Size of response: {}", msg.len());
     let (tx, rx) = unbounded();
     tx.unbounded_send(Message::Binary(msg)).unwrap();
 
@@ -66,7 +67,7 @@ async fn handle_connection(peer_map: PeerMap, raw_stream: TcpStream, addr: Socke
         color: new_user_data.color,
         user_name: new_user_data.user_name.into(),
     }));
-
+    println!("{:?}", cur_user_data.read().unwrap());
     peer_map.lock().unwrap().insert(
         addr,
         User {
@@ -77,9 +78,13 @@ async fn handle_connection(peer_map: PeerMap, raw_stream: TcpStream, addr: Socke
 
     let broadcast_incoming = incoming.try_for_each(|msg| {
         let msg = msg.to_text().unwrap().trim();
+        if msg.is_empty() {
+            return future::ok(());
+        }
         println!("Received a message from {}: {}", addr, msg);
+
+        let peers = peer_map.lock().unwrap();
         if msg.starts_with('/') && msg.len() > 1 {
-            let peers = peer_map.lock().unwrap();
             let cmd = msg[1..].to_lowercase();
             let args = cmd.splitn(3, ' ').collect::<Vec<&str>>();
             let response: common::Message = match args[..] {
@@ -97,8 +102,6 @@ async fn handle_connection(peer_map: PeerMap, raw_stream: TcpStream, addr: Socke
                 .unbounded_send(Message::Binary(response.serialize()))
                 .unwrap();
         } else {
-            let peers = peer_map.lock().unwrap();
-
             let broadcast_recipients = peers.values().map(|user| &user.tx);
 
             let user_data = cur_user_data.read().unwrap();
@@ -109,6 +112,7 @@ async fn handle_connection(peer_map: PeerMap, raw_stream: TcpStream, addr: Socke
                 color: user_data.color,
             };
             println!("Sending Message {:?}", msg_to_send);
+            println!("json {:?}", serde_json::to_string(&msg_to_send));
             let msg_to_send = msg_to_send.serialize();
 
             for recp in broadcast_recipients {
@@ -121,7 +125,6 @@ async fn handle_connection(peer_map: PeerMap, raw_stream: TcpStream, addr: Socke
     });
 
     let receive_from_others = rx.map(Ok).forward(outgoing);
-
     pin_mut!(broadcast_incoming, receive_from_others);
     future::select(broadcast_incoming, receive_from_others).await;
 
@@ -191,6 +194,12 @@ fn handle_change_username<'a>(
         .unwrap_or(common::Message::error("Invalid Username"))
 }
 
+fn user_name_exists<T>(map: &HashMap<T, User>, username: &str) -> bool {
+    map.values()
+        .find(|user| user.user_data.read().unwrap().user_name == username)
+        .is_some()
+}
+
 #[tokio::main]
 async fn main() -> Result<(), IoError> {
     let addr = env::args()
@@ -210,10 +219,4 @@ async fn main() -> Result<(), IoError> {
     }
 
     Ok(())
-}
-
-fn user_name_exists<T: Hash>(map: &HashMap<T, User>, username: &str) -> bool {
-    map.values()
-        .find(|user| user.user_data.read().unwrap().user_name == username)
-        .is_some()
 }
