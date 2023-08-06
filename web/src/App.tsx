@@ -22,6 +22,11 @@ enum Color {
   LightCyan = "LightCyan",
   White = "White",
 }
+enum AppState {
+  Login,
+  Chat,
+}
+
 
 interface NewUserSet {
   user_name: string,
@@ -38,11 +43,20 @@ const startmsg: NewUserSet = {
   color: Color.Blue,
 }
 
+function MessageList(props: { messages: Message[] }) {
+  return (
+    <ul>
+      {props.messages.map((msg, i) => <li key={i}><span style={{ color: msg.color }}>{msg.user_name}:</span> {msg.content}</li>)}
+    </ul>
+  )
+}
+
 function App() {
+  const [appState, setAppState] = useState(AppState.Login);
 
+  const [messagesHistory, setMessagesHistory] = useState(Array<Message>);
 
-  const [messages, setMessages] = useState(Array<Message>);
-
+  const [curMessage, setCurMessage] = useState("");
 
   const { sendMessage, lastMessage, readyState } = useWebSocket('ws://127.0.0.1:8080');
 
@@ -55,21 +69,31 @@ function App() {
   useEffect(() => {
     if (lastMessage !== null) {
       let data: Blob = lastMessage.data;
-      data.text().then((text) => setMessages((prev) => prev.concat(JSON.parse(text))));
+      data.text().then((text) => setMessagesHistory((prev) => prev.concat(JSON.parse(text))));
     }
-  }, [lastMessage, setMessages]);
+  }, [lastMessage, setMessagesHistory]);
 
 
   return (
     <div className="App">
-      <header className="App-header">
-        <ul>
-          {messages.map((msg, i) => <li key={i}><span style={{color: msg.color}}>{msg.user_name}:</span> {msg.content}</li>)}
-        </ul>
 
-      </header>
+      <MessageList messages={messagesHistory} />
+      
+      <form onSubmit={(e) => {
+        e.preventDefault();
+        console.log("IT WORKS")
+        sendMessage(curMessage)
+        setCurMessage("");
+      }}>
+        <input type="text" value={curMessage} onChange={(e) => setCurMessage(e.target.value)}></input>
+        <input type="submit" hidden />
+      </form>
+
+
     </div>
   );
 }
 
 export default App;
+
+
